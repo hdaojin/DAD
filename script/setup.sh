@@ -22,6 +22,10 @@ django_auto="django-auto" #  DON'T CHANGE THIS
 current_user=$(whoami)
 web_user="www-data" # DON'T CHANGE THIS
 
+sql_config_file="my.cnf"
+#sql_config_file="db.conf"
+
+
 # Install system packages
 install_system_packages() {
     echo -e "$green_front Installing system packages...$behind"
@@ -44,8 +48,7 @@ install_system_packages() {
 # Install python packages
 install_python_packages() {
     echo -e "$green_front Installing python packages...$behind"
-    cd $(dirname $project_path) && python3 -m venv .venv && source .venv/bin/activate && \
-    find . -iname "requirements.txt" -exec pip install -r {} \; && deactivate || exit 1
+    cd $(dirname $project_path) && python3 -m venv .venv && source .venv/bin/activate && find . -iname "requirements.txt" -exec pip install -r {} \; && deactivate || exit 1
     echo -e "$echo_success Installing python packages successfully"
 }
 
@@ -85,11 +88,11 @@ configure_mysql() {
     sudo mariadb -e "GRANT ALL PRIVILEGES ON $dbname.* TO '$dbuser'@'localhost' IDENTIFIED BY '$dbpass';"
     sudo mariadb -e "FLUSH PRIVILEGES;"
 
-    sudo cp -f $django_auto_dir/deploy/django/db.conf /etc/django/db.conf
+    sudo cp -f $django_auto_dir/deploy/django/$sql_config_file /etc/django/$sql_config_file
 
-    sudo sed -i "s/dbname/$dbname/g" /etc/django/db.conf
-    sudo sed -i "s/dbuser/$dbuser/g" /etc/django/db.conf
-    sudo sed -i "s/dbpass/$dbpass/g" /etc/django/db.conf
+    sudo sed -i "s/dbname/$dbname/g" /etc/django/$sql_config_file
+    sudo sed -i "s/dbuser/$dbuser/g" /etc/django/$sql_config_file
+    sudo sed -i "s/dbpass/$dbpass/g" /etc/django/$sql_config_file
     echo -e "$echo_success Configuring mysql successfully"
 }
 
@@ -172,8 +175,7 @@ collect_static_files() {
     [ -e $static_file_base_dir ] || sudo mkdir $static_file_base_dir
     sudo chown $current_user:$web_user $static_file_base_dir
     source $(dirname $project_path)/.venv/bin/activate
-    cd $project_path && python3 manage.py collectstatic --settings='mysite.settings.product' --noinput
-    deactivate
+    cd $project_path && python3 manage.py collectstatic --settings='mysite.settings.product' --noinput && deactivate || exit 1
     echo -e "$echo_success Collecting static files successfully"
 }
 
