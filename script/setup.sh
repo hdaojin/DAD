@@ -23,7 +23,6 @@ current_user=$(whoami)
 web_user="www-data" # DON'T CHANGE THIS
 
 django_config_dir="/etc/django"
-[ -d $django_config_dir ] || mkdir $django_config_dir
 sql_config_file="my.cnf"
 secret_key_file="secret_key.txt"
 django_config_file="django.conf"
@@ -313,7 +312,7 @@ fi
 [ -z $static_dir ] && static_dir="/var/www/$domain/static"
 [ -z $media_dir ] && media_dir="/var/www/$domain/media"
 
-if [ -d /etc/django ]; then
+if [ -d $django_config_dir ]; then
     for i in install_system_packages \
         install_python_packages \
         genarate_secret_key \
@@ -339,6 +338,7 @@ if [ -d /etc/django ]; then
     collect_static_files
     restart_service
 else
+    sudo mkdir $django_config_dir
     install_system_packages
     install_python_packages
     genarate_secret_key
