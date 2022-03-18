@@ -22,9 +22,11 @@ django_auto="django-auto" #  DON'T CHANGE THIS
 current_user=$(whoami)
 web_user="www-data" # DON'T CHANGE THIS
 
+django_config_dir="/etc/django"
+[ -d $django_config_dir ] || mkdir $django_config_dir
 sql_config_file="my.cnf"
-#sql_config_file="db.conf"
-
+secret_key_file="secret_key.txt"
+django_config_file="django.conf"
 
 # Install system packages
 install_system_packages() {
@@ -55,8 +57,7 @@ install_python_packages() {
 # secret_key
 genarate_secret_key() {
     echo -e "$green_front Generating secret_key...$behind"
-    [ -e /etc/django ] || sudo mkdir /etc/django
-    python3 -c "import secrets; print(secrets.token_urlsafe())" | sudo tee /etc/django/secret_key.conf >/dev/null
+    python3 -c "import secrets; print(secrets.token_urlsafe())" | sudo tee $secret_key_file >/dev/null
     echo -e "$echo_success Generating secret_key successfully"
 }
 
@@ -75,7 +76,7 @@ configure_mysql() {
         fi
     done
 
-    sudo systemctl status mariadb.service
+    sudo systemctl status mariadb.service >/dev/null 2>&1
     if [ $? -ne 0 ]; then
         sudo systemctl start mariadb.service || exit 1
         sudo systemctl enable mariadb.service
@@ -88,11 +89,11 @@ configure_mysql() {
     sudo mariadb -e "GRANT ALL PRIVILEGES ON $dbname.* TO '$dbuser'@'localhost' IDENTIFIED BY '$dbpass';"
     sudo mariadb -e "FLUSH PRIVILEGES;"
 
-    sudo cp -f $django_auto_dir/deploy/django/$sql_config_file /etc/django/$sql_config_file
+    sudo cp -f $django_auto_dir/deploy/django/$sql_config_file $django_config_dir/$sql_config_file
 
-    sudo sed -i "s/dbname/$dbname/g" /etc/django/$sql_config_file
-    sudo sed -i "s/dbuser/$dbuser/g" /etc/django/$sql_config_file
-    sudo sed -i "s/dbpass/$dbpass/g" /etc/django/$sql_config_file
+    sudo sed -i "s/dbname/$dbname/g" $django_config_dir/$sql_config_file
+    sudo sed -i "s/dbuser/$dbuser/g" $django_config_dir/$sql_config_file
+    sudo sed -i "s/dbpass/$dbpass/g" $django_config_dir/$sql_config_file
     echo -e "$echo_success Configuring mysql successfully"
 }
 
@@ -130,11 +131,12 @@ configure_nginx() {
     fi
     sudo cp -f $django_auto_dir/deploy/nginx/sites-available/mysite.conf /etc/nginx/sites-available/$domain.conf
     sudo sed -i "s/mysite/$domain/g" /etc/nginx/sites-available/$domain.conf
-    sudo sed -i "s;/var/www/mysite;$static_file_base_dir;g" /etc/nginx/sites-available/$domain.conf
     if [ ! -L /etc/nginx/sites-enabled/$domain.conf ]; then
         sudo ln -s /etc/nginx/sites-available/$domain.conf /etc/nginx/sites-enabled/$domain.conf
     fi
     sudo cp -f -r $django_auto_dir/deploy/nginx/custom /etc/nginx/
+    sudo echo "set \$static_root $static_dir;" > /etc/nginx/custom/set.conf
+    sudo echo "set \$media_root $media_dir;" >> /etc/nginx/custom/set.conf
     if [ $deploy_env -eq 1 ]; then
         sudo sed -i "s#ssl_certificate .*#ssl_certificate  /etc/letsencrypt/live/$domain/fullchain.pem;#g" /etc/nginx/custom/ssl.conf
         sudo sed -i "s#ssl_certificate_key .*#ssl_certificate_key  /etc/letsencrypt/live/$domain/privkey.pem;#g" /etc/nginx/custom/ssl.conf
@@ -160,22 +162,25 @@ configure_uwsgi() {
     echo -e "$echo_success Configuring uwsgi successfully"
 }
 
-# envrionment variables
-set_django_envrioment_variables() {
-    echo -e "$green_front Setting django environment variables...$behind"
-    sudo cp -f $django_auto_dir/deploy/profile.d/django.sh /etc/profile.d/django.sh
-    sudo sed -i "s;/var/www/mysite;$static_file_base_dir;g" /etc/profile.d/django.sh
-    source /etc/profile.d/django.sh
-    echo -e "$echo_success Setting django environment variables successfully"
+# django settings
+set_django_settings() {
+    echo -e "$green_front configure django settings...$behind"
+    sudo cp -f $django_auto_dir/deploy/django/$django_config_file  $django_config_dir/$django_config_file
+    sudo sed -i "s;STATIC_ROOT.*;STATIC_ROOT = $static_dir;g"  $django_config_dir/$django_config_file
+    sudo sed -i "s;MEDIA_ROOT.*;MEDIA_ROOT = $media_dir;g"  $django_config_dir/$django_config_file
+    echo -e "$echo_success configure django settings successfully"
 }
 
 # static files
 collect_static_files() {
     echo -e "$green_front Collecting static files...$behind"
-    [ -e $static_file_base_dir ] || sudo mkdir $static_file_base_dir
-    sudo chown $current_user:$web_user $static_file_base_dir
+    [ -e $static_dir ] || sudo mkdir $static_dir 
+    sudo chown $current_user:$web_user $static_dir
+    [ -e $media_dir ] || sudo mkdir $media_dir 
+    sudo chown $current_user:$web_user $media_dir
+    
     source $(dirname $project_path)/.venv/bin/activate
-    cd $project_path && python3 manage.py collectstatic --settings='mysite.settings.product' --noinput && deactivate || exit 1
+    cd $project_path && python3 manage.py collectstatic --noinput && deactivate || exit 1
     echo -e "$echo_success Collecting static files successfully"
 }
 
@@ -194,15 +199,17 @@ usage() {
     Automatically deploy Django projects on the Linux server.
 
     Options:
-        -h            show this help message and exit
-        -p  dir       absolute path of django project  
-                      (manage.py is located, begin with "/")
-        -s  dir       absolute path of static/media base directory 
-                      (default: /var/www/your_domain_name begin with "/")
+        -h                  show this help message and exit
+        -p  dir             absolute path of django project  
+                            (manage.py is located, begin with "/")
+        -s  static_root     absolute path of STATIC_ROOT for production
+                            (default: /var/www/your_domain/static begin with "/")
+        -m  media_root     absolute path of MEDIA_ROOT for production
+                            (default: /var/www/your_domain/media begin with "/")
 
     Examples:
-        $0 -p /home/demo/django_project/itnsa/mysite
-        $0 -p /home/demo/django_project/itnsa/mysite -s /var/www/itnsa
+        $0 -p /home/demo/django_project/mysite
+        $0 -p /home/demo/django_project/mysite -s /var/www/mysite/static -m /var/www/mysite/media
 EOF
 }
 
@@ -230,12 +237,22 @@ while getopts "hp:s:" opt; do
     s)
         echo $OPTARG | grep -q '^/'
         if [ $? -eq 0 ]; then
-            static_file_base_dir=$OPTARG
+            static_dir=$OPTARG
         else
-            echo -e "$red_front Please specify the absoute path of static/media base directory $behind"
+            echo -e "$red_front Please specify the absoute path of static file directory $behind"
             exit 1
         fi
         ;;
+    m)
+        echo $OPTARG | grep -q '^/'
+        if [ $? -eq 0 ]; then
+            media_dir=$OPTARG
+        else
+            echo -e "$red_front Please specify the absoute path of media file directory $behind"
+            exit 1
+        fi
+        ;;
+
     \?)
         usage
         exit 1
@@ -293,7 +310,8 @@ else
     fi
 fi
 
-[ -z $static_file_base_dir ] && static_file_base_dir="/var/www/$domain"
+[ -z $static_dir ] && static_dir="/var/www/$domain/static"
+[ -z $media_dir ] && media_dir="/var/www/$domain/media"
 
 if [ -d /etc/django ]; then
     for i in install_system_packages \
@@ -317,7 +335,7 @@ if [ -d /etc/django ]; then
     done
     configure_nginx
     configure_uwsgi
-    set_django_envrioment_variables
+    set_django_settings
     collect_static_files
     restart_service
 else
@@ -328,7 +346,7 @@ else
     genarate_ssl_cert
     configure_nginx
     configure_uwsgi
-    set_django_envrioment_variables
+    set_django_settings
     collect_static_files
     restart_service
 fi
