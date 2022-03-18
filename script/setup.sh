@@ -57,7 +57,7 @@ install_python_packages() {
 # secret_key
 genarate_secret_key() {
     echo -e "$green_front Generating secret_key...$behind"
-    python3 -c "import secrets; print(secrets.token_urlsafe())" | sudo tee $secret_key_file >/dev/null
+    python3 -c "import secrets; print(secrets.token_urlsafe())" | sudo tee $django_config_dir/$secret_key_file >/dev/null
     echo -e "$echo_success Generating secret_key successfully"
 }
 
@@ -82,7 +82,7 @@ configure_mysql() {
         sudo systemctl enable mariadb.service
     fi
 
-    sudo mariadb -e "SHOW DATABASES;" | grep -q $dbname
+    sudo mariadb -e "SHOW DATABASES;" | grep -q -w $dbname
     if [ $? -ne 0 ]; then
         sudo mariadb -e "CREATE DATABASE $dbname;"
     fi
@@ -135,8 +135,8 @@ configure_nginx() {
         sudo ln -s /etc/nginx/sites-available/$domain.conf /etc/nginx/sites-enabled/$domain.conf
     fi
     sudo cp -f -r $django_auto_dir/deploy/nginx/custom /etc/nginx/
-    sudo echo "set \$static_root $static_dir;" > /etc/nginx/custom/set.conf
-    sudo echo "set \$media_root $media_dir;" >> /etc/nginx/custom/set.conf
+    echo "set \$static_root $static_dir;" | sudo tee /etc/nginx/custom/set.conf >/dev/null
+    echo "set \$media_root $media_dir;" | sudo tee -a /etc/nginx/custom/set.conf > /dev/null
     if [ $deploy_env -eq 1 ]; then
         sudo sed -i "s#ssl_certificate .*#ssl_certificate  /etc/letsencrypt/live/$domain/fullchain.pem;#g" /etc/nginx/custom/ssl.conf
         sudo sed -i "s#ssl_certificate_key .*#ssl_certificate_key  /etc/letsencrypt/live/$domain/privkey.pem;#g" /etc/nginx/custom/ssl.conf
@@ -166,17 +166,17 @@ configure_uwsgi() {
 set_django_settings() {
     echo -e "$green_front configure django settings...$behind"
     sudo cp -f $django_auto_dir/deploy/django/$django_config_file  $django_config_dir/$django_config_file
-    sudo sed -i "s;STATIC_ROOT.*;STATIC_ROOT = $static_dir;g"  $django_config_dir/$django_config_file
-    sudo sed -i "s;MEDIA_ROOT.*;MEDIA_ROOT = $media_dir;g"  $django_config_dir/$django_config_file
+    sudo sed -i "s;StaticRoot.*;StaticRoot = $static_dir;g"  $django_config_dir/$django_config_file
+    sudo sed -i "s;MediaRoot.*;MediaRoot = $media_dir;g"  $django_config_dir/$django_config_file
     echo -e "$echo_success configure django settings successfully"
 }
 
 # static files
 collect_static_files() {
     echo -e "$green_front Collecting static files...$behind"
-    [ -e $static_dir ] || sudo mkdir $static_dir 
+    [ -e $static_dir ] || sudo mkdir -p $static_dir 
     sudo chown $current_user:$web_user $static_dir
-    [ -e $media_dir ] || sudo mkdir $media_dir 
+    [ -e $media_dir ] || sudo mkdir -p $media_dir 
     sudo chown $current_user:$web_user $media_dir
     
     source $(dirname $project_path)/.venv/bin/activate
@@ -219,7 +219,7 @@ if [ $# -eq 0 ]; then
     exit 1
 fi
 
-while getopts "hp:s:" opt; do
+while getopts "hp:s:m:" opt; do
     case $opt in
     h)
         usage

@@ -4,9 +4,10 @@ CONFIG_FILE = '/etc/django/django.conf'
 
 try:
     with open(CONFIG_FILE, 'r') as f:
+        conf = f.read()
         config = ConfigParser()
-        config.read(f)
-        env = config.get('DEFAULT', 'ENV')
+        config.read_string(conf)
+        env = config.get('DEFAULT', 'Env')
         if env == 'production':
             from .production import *
         else:

@@ -22,5 +22,8 @@ DATABASES = {
 
 config = ConfigParser()
 config.read('/etc/django/django.conf')
-STATIC_ROOT = config.get('DIR', 'STATIC_ROOT')
-MEDIA_ROOT = config.get('DIR', 'MEDIA_ROOT')
+static_root_dir = config.get('DIR', 'StaticRoot')
+media_root_dir = config.get('DIR', 'MediaRoot')
+
+STATIC_ROOT = static_root_dir
+MEDIA_ROOT = media_root_dir
